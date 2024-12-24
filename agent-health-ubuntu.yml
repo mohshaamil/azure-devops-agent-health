@@ -1,0 +1,48 @@
+trigger:
+- none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- task: Bash@3
+  displayName: "Monitor Agent Health"
+  inputs:
+    targetType: 'inline'
+    script: |
+      # Get CPU usage
+      cpuUsage=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}')
+
+      # Get Disk utilization
+      diskUsage=$(df -h --output=source,pcent,avail,size | grep -E '^/dev/' | awk '{print $1, $2, $3, $4}')
+
+      # Output CPU usage
+      echo "CPU Usage: ${cpuUsage}%"
+
+      # Output Disk usage
+      echo "Disk Utilization:"
+      echo "$diskUsage" | while read -r line; do
+        drive=$(echo $line | awk '{print $1}')
+        used=$(echo $line | awk '{print $2}')
+        free=$(echo $line | awk '{print $3}')
+        total=$(echo $line | awk '{print $4}')
+        echo "Drive: $drive"
+        echo "  Free Space: $free"
+        echo "  Total Space: $total"
+        echo "  Used Percentage: $used"
+      done
+
+      # Optionally, fail the pipeline if thresholds are exceeded
+      if (( $(echo "$cpuUsage > 80" | bc -l) )); then
+        echo "Error: CPU usage exceeds 80%" >&2
+        exit 1
+      fi
+
+      echo "$diskUsage" | while read -r line; do
+        usedPercent=$(echo $line | awk '{print $2}' | tr -d '%')
+        drive=$(echo $line | awk '{print $1}')
+        if (( usedPercent > 90 )); then
+          echo "Error: Disk usage on $drive exceeds 90%" >&2
+          exit 1
+        fi
+      done
